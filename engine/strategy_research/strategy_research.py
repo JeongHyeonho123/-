@@ -10,18 +10,26 @@ strategy_research.py (FINAL)
   data/strategy/strategy_report_YYYYMMDD_HHMMSS.txt
   data/strategy/strategy_latest.json
 """
-import os, sys
+import os
+import sys
 
 def BASE_DIR():
-    # exe 실행 시: dist 폴더
+    """
+    ✅ Render/GitHub 서버 기준으로 data/ 경로가 항상 '레포 루트'에 생기도록 통일
+    - 현재 파일 위치: engine/strategy_research/4.strategy_research.py (또는 strategy_research.py)
+    - 레포 루트: 위로 2단계
+    """
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    # py 실행 시
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def P(*paths):
     return os.path.join(BASE_DIR(), *paths)
 
+def ABS(path: str) -> str:
+    if not path:
+        return path
+    return path if os.path.isabs(path) else P(path)
 
 import json
 import math
@@ -37,10 +45,7 @@ except Exception as e:
         f"원인: {e}"
     )
 
-# ✅❗중요: exe에서 이 줄이 있으면 _MEI 임시폴더로 경로가 고정되어 전부 꼬입니다.
-# BASE_DIR = os.path.dirname(os.path.abspath(__file__))  <-- 삭제/비활성화해야 함
-
-# ✅ dist(또는 py 파일 위치) 기준으로 경로 통일
+# ✅ dist(또는 py) 기준으로 경로 통일 (레포 루트 기준)
 HIST_DIR = P("data", "history_norm")
 KR_DIR = P("data", "history_norm", "KR")
 US_DIR = P("data", "history_norm", "US")
@@ -258,7 +263,10 @@ def backtest_one(df: pd.DataFrame, strategy: str, fee_bps: float) -> dict:
 
 def load_candidates() -> tuple[list[str], list[str]]:
     if not os.path.exists(SIGNALS_LATEST):
-        raise FileNotFoundError(f"signals_latest.json이 없습니다: {SIGNALS_LATEST}\n먼저 research.py를 실행하세요.")
+        raise FileNotFoundError(
+            f"signals_latest.json이 없습니다: {SIGNALS_LATEST}\n"
+            "먼저 research.py(또는 signals_latest.json 생성 단계)를 실행하세요."
+        )
 
     with open(SIGNALS_LATEST, "r", encoding="utf-8") as f:
         s = json.load(f)
@@ -340,7 +348,6 @@ def main():
 
     df_out = pd.DataFrame(rows)
     if df_out.empty:
-        # 결과가 없어도 파일은 생성
         df_out = pd.DataFrame(columns=["market","symbol","strategy","equity","cagr","max_dd","trades","winrate"])
 
     # 성과 기준: CAGR - (maxDD*0.8) + (winrate*0.1)
@@ -402,3 +409,4 @@ if __name__ == "__main__":
     except Exception as e:
         log(f"[FATAL] {e}")
         log(traceback.format_exc())
+        raise
