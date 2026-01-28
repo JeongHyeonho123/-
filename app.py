@@ -6,203 +6,202 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
 # ------------------------------------------------------------
-# Optional engine imports (works even if engine is not ready yet)
+# Engine import (ONLY engine.interface)
+#  - research.py fallback 제거 (import 충돌 방지)
 # ------------------------------------------------------------
 ENGINE_MODE = "dummy"
 
-hello_engine = None
 recommend_top20 = None
 recommend_highrisk5 = None
 analyze_ticker = None
+run_pipeline = None
 
-# 1) Try to use "engine/interface.py" if you create it later
 try:
-    from engine.interface import recommend_top20, recommend_highrisk5, analyze_ticker  # type: ignore
+    # engine/interface.py 안에 아래 함수들이 있어야 정상 동작
+    from engine.interface import (
+        recommend_top20,
+        recommend_highrisk5,
+        analyze_ticker,
+        run_pipeline,
+    )  # type: ignore
+
     ENGINE_MODE = "engine.interface"
 except Exception:
-    # 2) If not available, try the test function "engine/research.py"
-    try:
-        from engine.research import hello_engine  # type: ignore
-        ENGINE_MODE = "engine.research(hello_engine)"
-    except Exception:
-        ENGINE_MODE = "dummy"
+    ENGINE_MODE = "dummy"
 
 
 # ------------------------------------------------------------
-# App setup
+# FastAPI app
 # ------------------------------------------------------------
-app = FastAPI(title="Quant Recommend API", version="0.1.0")
+app = FastAPI(
+    title="Quant Recommend API",
+    version="0.1.0",
+    description="Stock 추천/분석 API (engine.interface 연결)",
+)
 
-# CORS: allow app/web clients to call this API
-# (For production, you should restrict origins.)
+# CORS (웹/앱에서 호출 가능하게)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=["*"],  # 나중에 앱 도메인 정해지면 여기 제한 가능
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-def now_kst_iso() -> str:
-    # KST = UTC+9
-    kst = timezone.utc
-    # We'll return UTC time with offset "Z" by default; you can adjust later.
-    # If you really want +09:00 formatting, we can change it later.
+def now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def engine_status() -> str:
-    if callable(hello_engine):
-        try:
-            return str(hello_engine())
-        except Exception as e:
-            return f"engine hello error: {e}"
-    return f"engine mode: {ENGINE_MODE}"
-
-
 # ------------------------------------------------------------
-# Dummy implementations (used until engine is fully wired)
+# Dummy implementations (engine.interface 없을 때 대비)
 # ------------------------------------------------------------
 def dummy_top20() -> Dict[str, Any]:
-    return {
-        "asof": now_kst_iso(),
-        "mode": "eod",
-        "horizon_days": 20,
-        "engine": engine_status(),
-        "items": [
+    items = []
+    for i in range(1, 21):
+        items.append(
             {
-                "ticker": "005930",
-                "name": "삼성전자",
+                "rank": i,
+                "ticker": f"00000{i % 10}",
+                "name": f"DummyStock{i}",
+                "score": round(100 - i * 2.3, 2),
+                "prob": round(0.55 + (20 - i) * 0.01, 2),
                 "grade": "B+",
-                "prob": {"up": 0.63, "flat": 0.21, "down": 0.16},
-                "score_bin": "80-85",
-            },
-            {
-                "ticker": "000660",
-                "name": "SK하이닉스",
-                "grade": "B",
-                "prob": {"up": 0.58, "flat": 0.24, "down": 0.18},
-                "score_bin": "75-80",
-            },
-        ],
+            }
+        )
+    return {
+        "engine_mode": ENGINE_MODE,
+        "generated_at": now_utc_iso(),
+        "count": len(items),
+        "items": items,
     }
 
 
 def dummy_highrisk5() -> Dict[str, Any]:
-    return {
-        "asof": now_kst_iso(),
-        "mode": "eod",
-        "horizon_days": 20,
-        "risk_tag": "high",
-        "engine": engine_status(),
-        "items": [
+    items = []
+    for i in range(1, 6):
+        items.append(
             {
-                "ticker": "263750",
-                "name": "펄어비스(예시)",
-                "grade": "C+",
-                "prob": {"up": 0.55, "flat": 0.15, "down": 0.30},
-                "score_bin": "70-75",
-                "note": "변동성 높음(예시)",
+                "rank": i,
+                "ticker": f"HR{i:03d}",
+                "name": f"HighRisk{i}",
+                "score": round(80 - i * 1.7, 2),
+                "prob": round(0.50 + (5 - i) * 0.03, 2),
+                "grade": "A-",
+                "note": "고위험/고수익 후보",
             }
-        ],
+        )
+    return {
+        "engine_mode": ENGINE_MODE,
+        "generated_at": now_utc_iso(),
+        "count": len(items),
+        "items": items,
     }
 
 
 def dummy_analyze(ticker: str) -> Dict[str, Any]:
     return {
-        "ticker": ticker,
-        "name": None,
-        "asof": now_kst_iso(),
-        "grade": "B+",
-        "prob": {"up": 0.63, "flat": 0.21, "down": 0.16},
-        "n_samples": 0,
-        "levels": {"entry": None, "stop": None, "tp1": None, "tp2": None},
-        "reasons_top3": [
-            {"factor": "trend", "note": "테스트 더미(엔진 연결 전)"},
-            {"factor": "volume", "note": "테스트 더미(엔진 연결 전)"},
-            {"factor": "momentum", "note": "테스트 더미(엔진 연결 전)"},
-        ],
-        "engine": engine_status(),
-    }
-
-
-# ------------------------------------------------------------
-# Routes
-# ------------------------------------------------------------
-@app.get("/")
-def health() -> Dict[str, Any]:
-    return {
-        "status": "ok",
         "engine_mode": ENGINE_MODE,
-        "engine": engine_status(),
-        "asof": now_kst_iso(),
+        "generated_at": now_utc_iso(),
+        "ticker": ticker,
+        "summary": "더미 분석 결과입니다 (engine 연결 전).",
+        "scenarios": [
+            {"name": "상승", "prob": 0.45, "plan": "분할매수 후 목표가 분할매도"},
+            {"name": "횡보", "prob": 0.35, "plan": "박스권 하단 재매수, 상단 매도"},
+            {"name": "하락", "prob": 0.20, "plan": "손절/비중축소, 재진입 조건 대기"},
+        ],
+        "trade_plan": {
+            "entry": None,
+            "take_profit": None,
+            "stop_loss": None,
+        },
+        "details": {},
     }
 
 
-@app.get("/recommend/top20")
+def dummy_run_pipeline(market: str = "KR") -> Dict[str, Any]:
+    return {
+        "engine_mode": ENGINE_MODE,
+        "generated_at": now_utc_iso(),
+        "status": "dummy_ok",
+        "market": market,
+        "message": "더미 파이프라인 실행 완료 (engine 연결 전).",
+    }
+
+
+# ------------------------------------------------------------
+# API
+# ------------------------------------------------------------
+@app.get("/", tags=["default"])
+def root() -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "engine_mode": ENGINE_MODE,
+        "generated_at": now_utc_iso(),
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
+@app.get("/health", tags=["default"])
+def health() -> Dict[str, Any]:
+    return {"ok": True, "engine_mode": ENGINE_MODE, "generated_at": now_utc_iso()}
+
+
+@app.get("/recommend/top20", tags=["recommend"])
 def api_top20() -> Dict[str, Any]:
-    # If engine interface exists, use it
-    if callable(recommend_top20):
+    # engine.interface가 있으면 진짜 함수 호출
+    if recommend_top20:
         try:
-            data = recommend_top20()  # expected dict JSON-serializable
-            # Add metadata if missing
-            if isinstance(data, dict):
-                data.setdefault("asof", now_kst_iso())
-                data.setdefault("engine", engine_status())
-            return data
+            return recommend_top20()  # type: ignore
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"recommend_top20 error: {e}")
 
-    # Fallback dummy
+    # 없으면 더미
     return dummy_top20()
 
 
-@app.get("/recommend/highrisk")
+@app.get("/recommend/highrisk", tags=["recommend"])
 def api_highrisk() -> Dict[str, Any]:
-    if callable(recommend_highrisk5):
+    if recommend_highrisk5:
         try:
-            data = recommend_highrisk5()  # expected dict
-            if isinstance(data, dict):
-                data.setdefault("asof", now_kst_iso())
-                data.setdefault("engine", engine_status())
-            return data
+            return recommend_highrisk5()  # type: ignore
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"recommend_highrisk5 error: {e}")
 
     return dummy_highrisk5()
 
 
-@app.get("/analyze/{ticker}")
+@app.get("/analyze/{ticker}", tags=["analyze"])
 def api_analyze(ticker: str) -> Dict[str, Any]:
-    ticker = ticker.strip()
-
+    ticker = (ticker or "").strip()
     if not ticker:
-        raise HTTPException(status_code=400, detail="ticker is empty")
+        raise HTTPException(status_code=400, detail="ticker is required")
 
-    if callable(analyze_ticker):
+    if analyze_ticker:
         try:
-            data = analyze_ticker(ticker)  # expected dict
-            if isinstance(data, dict):
-                data.setdefault("ticker", ticker)
-                data.setdefault("asof", now_kst_iso())
-                data.setdefault("engine", engine_status())
-            return data
+            return analyze_ticker(ticker)  # type: ignore
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"analyze_ticker error: {e}")
 
     return dummy_analyze(ticker)
 
-# ==============================
-# 엔진 파이프라인 수동 실행용 API
-# (최초 1회 캐시 생성)
-# ==============================
 
-from engine.interface import run_pipeline
+@app.post("/engine/run", tags=["engine"])
+def api_engine_run(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    파이프라인(수집->정규화->리서치->시그널->전략)을 서버에서 실행시키는 용도
+    payload 예시:
+      {"market":"KR"}
+    """
+    market = "KR"
+    if payload and isinstance(payload, dict):
+        market = str(payload.get("market", "KR")).upper().strip() or "KR"
 
-@app.post("/engine/run")
-def engine_run():
-    result = run_pipeline()
-    if not result.get("ok"):
-        raise HTTPException(status_code=500, detail=result)
-    return result
+    if run_pipeline:
+        try:
+            return run_pipeline(market=market)  # type: ignore
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"run_pipeline error: {e}")
+
+    return dummy_run_pipeline(market=market)
