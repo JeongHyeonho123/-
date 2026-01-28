@@ -2,14 +2,22 @@
 # -*- coding: utf-8 -*-
 """
 Signals History Builder (Phase 3) - 기업식 2차(MINIMAL)
-- exe/py 공통 경로 기준 통일
+- ✅ Render/GitHub 서버 기준 경로 통일(레포 루트)
 - 로직/룰 변경 없음(입력 폴더를 history_norm으로 전환 + 설정파일화 + 로그)
+- ✅ __main__ try/except 로 에러 원인 출력
 """
-import os, sys
+import os
+import sys
+
 def BASE_DIR():
+    """
+    ✅ Render/GitHub 서버 기준으로 data/ 경로가 항상 '레포 루트'에 생기도록 통일
+    - 현재 파일 위치: engine/signals_history_builder/12.signals_history_builder.py
+    - 레포 루트: 위로 2단계
+    """
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def P(*paths):
     return os.path.join(BASE_DIR(), *paths)
@@ -64,7 +72,9 @@ def read_json(path: str, default=None):
         return default
 
 def write_json(path: str, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
 
@@ -240,4 +250,10 @@ def main():
     logger.log(f"[INFO] settings: TOP={TOP_KR_PER_DAY} MIN_BARS={MIN_BARS} MOM={LOOKBACK_MOM} VOL={LOOKBACK_VOL} VOL_SPIKE_Z={VOL_SPIKE_Z}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[FATAL] signals_history_builder failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        raise
