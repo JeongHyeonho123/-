@@ -3,15 +3,17 @@ import sys
 import zipfile
 from pathlib import Path
 
+# ✅ 여기 zip 파일명만 맞추면 됨
 ZIP_NAME = "recommend_engine_src.zip"
 
-# zip 안 원본 파일 → repo에 만들 파일 경로
-MAPPING = {
-    "free_history_collector/1.free_history_collector.py": "engine/legacy/free_history_collector.py",
-    "nomalize_history/2.normalize_history.py": "engine/legacy/normalize_history.py",
-    "research/3.research.py": "engine/legacy/research.py",
-    "strategy_research/4.strategy_research.py": "engine/legacy/strategy_research.py",
-    "signals_history_builder/12.signals_history_builder.py": "engine/legacy/signals_history_builder.py",
+# (목표 파일) zip 안에서 이 이름이 들어간 .py를 자동으로 찾아서 매핑
+TARGETS = {
+    "free_history_collector": "engine/legacy/free_history_collector.py",
+    "normalize_history": "engine/legacy/normalize_history.py",
+    "nomalize_history": "engine/legacy/normalize_history.py",  # 오타 폴더도 대응
+    "research": "engine/legacy/research.py",
+    "strategy_research": "engine/legacy/strategy_research.py",
+    "signals_history_builder": "engine/legacy/signals_history_builder.py",
 }
 
 BASE_DIR_REPLACEMENT = """def BASE_DIR():
@@ -21,25 +23,46 @@ BASE_DIR_REPLACEMENT = """def BASE_DIR():
 """
 
 def patch_base_dir(src: str) -> str:
-    """
-    기존 BASE_DIR() 함수 전체를 교체한다.
-    - 패턴: def BASE_DIR(): 부터 다음 빈 줄까지(또는 다음 def 전까지) 넉넉히 잡아 교체
-    """
-    # 가장 흔한 형태: def BASE_DIR(): ... return ... (뒤에 빈 줄)
-    pattern = r"def BASE_DIR\(\):\s*.*?(?=\n\s*\ndef |\n\s*\ndef P\(|\n\s*def P\(|\n\s*\n)"
+    # BASE_DIR 함수가 있으면 교체, 없으면 맨 위에 삽입
+    pattern = r"def BASE_DIR\(\):\s*.*?(?=\n\s*\ndef |\n\s*\n)"
     m = re.search(pattern, src, flags=re.DOTALL)
     if not m:
-        # BASE_DIR가 없으면 앞쪽에 삽입
         return BASE_DIR_REPLACEMENT + "\n" + src
-
     start, end = m.span()
     return src[:start] + BASE_DIR_REPLACEMENT + "\n" + src[end:]
 
 
-def ensure_init(py_path: Path):
-    py_path.parent.mkdir(parents=True, exist_ok=True)
-    if not py_path.exists():
-        py_path.write_text("", encoding="utf-8")
+def ensure_file(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text("", encoding="utf-8")
+
+
+def find_best_match(namelist, keyword: str) -> str | None:
+    """
+    zip 내부 경로 중에서 keyword가 포함된 .py 파일을 찾아서
+    가장 그럴듯한 1개를 반환.
+    """
+    candidates = [n for n in namelist if n.lower().endswith(".py") and keyword.lower() in n.lower()]
+
+    if not candidates:
+        return None
+
+    # 우선순위: 숫자 prefix가 붙은 파일(예: 1.xxx.py, 2.xxx.py)을 선호
+    def score(name: str) -> int:
+        base = name.split("/")[-1]
+        s = 0
+        if re.match(r"^\d+[\._-]", base):
+            s += 100
+        # 폴더명 정확히 포함되면 가산점
+        if f"{keyword.lower()}/" in name.lower():
+            s += 50
+        # 너무 깊은 경로는 감점(대충)
+        s -= name.count("/")
+        return s
+
+    candidates.sort(key=score, reverse=True)
+    return candidates[0]
 
 
 def main():
@@ -47,33 +70,59 @@ def main():
     zip_path = repo_root / ZIP_NAME
 
     if not zip_path.exists():
-        print(f"[ERROR] {ZIP_NAME} 파일이 레포 루트에 없습니다: {zip_path}")
+        print(f"[ERROR] zip 파일이 없습니다: {zip_path}")
+        print("zip 파일명을 확인해서 ZIP_NAME을 맞춰주세요.")
         sys.exit(1)
 
-    # engine/legacy 패키지 생성
-    ensure_init(repo_root / "engine" / "__init__.py")
-    ensure_init(repo_root / "engine" / "legacy" / "__init__.py")
+    # engine/legacy 패키지 뼈대 생성
+    ensure_file(repo_root / "engine" / "__init__.py")
+    ensure_file(repo_root / "engine" / "legacy" / "__init__.py")
 
     with zipfile.ZipFile(zip_path, "r") as zf:
-        names = set(zf.namelist())
-        missing = [k for k in MAPPING.keys() if k not in names]
-        if missing:
-            print("[ERROR] zip 안에 필요한 파일이 없습니다:")
-            for m in missing:
-                print(" -", m)
+        names = zf.namelist()
+
+        # 디버그: zip 내부에 뭐가 있는지 일부 보여줌(너무 길면 생략)
+        py_files = [n for n in names if n.lower().endswith(".py")]
+        if not py_files:
+            print("[ERROR] zip 안에 .py 파일이 하나도 없습니다.")
             sys.exit(1)
 
-        for src_name, dst_name in MAPPING.items():
+        found = {}
+        for key, dst in TARGETS.items():
+            match = find_best_match(names, key)
+            if match:
+                found[key] = (match, dst)
+
+        # 키워드 중복(예: normalize_history / nomalize_history) 정리
+        # 둘 다 찾았으면 더 점수 높은 쪽만 사용
+        if "normalize_history" in found and "nomalize_history" in found:
+            # normalize_history 우선 사용, nomalize_history는 제거
+            found.pop("nomalize_history", None)
+
+        required_keys = ["free_history_collector", "normalize_history", "research", "strategy_research", "signals_history_builder"]
+        missing = [k for k in required_keys if k not in found]
+
+        if missing:
+            print("[ERROR] 자동 탐색으로도 필요한 파일을 못 찾았습니다:")
+            for m in missing:
+                print(" -", m)
+            print("\n[HINT] zip 내부 파일 목록을 보고 싶으면 아래 실행:")
+            print("python -c \"import zipfile; z=zipfile.ZipFile('"+ZIP_NAME+"'); print('\\n'.join(z.namelist()))\"")
+            sys.exit(1)
+
+        # 파일 생성
+        for key in required_keys:
+            src_name, dst_name = found[key]
             raw = zf.read(src_name).decode("utf-8", errors="replace")
             patched = patch_base_dir(raw)
 
             dst_path = repo_root / dst_name
             dst_path.parent.mkdir(parents=True, exist_ok=True)
             dst_path.write_text(patched, encoding="utf-8")
-            print(f"[OK] wrote: {dst_name}")
+            print(f"[OK] {key}: {src_name} -> {dst_name}")
 
     print("\n[DONE] legacy engine files prepared.")
-    print("Next: commit & push to GitHub, then Render deploy.")
+    print("Next: GitHub commit & push -> Render Deploy latest commit.")
 
 
 if __name__ == "__main__":
