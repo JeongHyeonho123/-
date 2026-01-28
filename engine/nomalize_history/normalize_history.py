@@ -14,16 +14,24 @@ Normalize History (Phase 2) - 기업식 2차(MINIMAL)
   data/history_norm/US/*.csv
 
 [2차 기업식 최소추가]
-- exe/py 공통 경로 통일(ABS)
+- ✅ Render/GitHub 서버 기준 경로 통일(레포 루트)
 - 설정파일 기반(없으면 자동 생성)
 - 로그 파일 기록
+- ✅ __main__ try/except 로 에러 원인 출력
 """
 
-import os, sys
+import os
+import sys
+
 def BASE_DIR():
+    """
+    ✅ Render/GitHub 서버 기준으로 data/ 경로가 항상 '레포 루트'에 생기도록 통일
+    - 현재 파일 위치: engine/nomalize_history/2.normalize_history.py
+    - 레포 루트: 위로 2단계
+    """
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def P(*paths):
     return os.path.join(BASE_DIR(), *paths)
@@ -72,7 +80,9 @@ def read_json(path: str, default=None):
         return default
 
 def write_json(path: str, obj):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
 
@@ -350,4 +360,10 @@ def main():
     logger.log(f"-> output: {OUT_US_DIR}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[FATAL] normalize_history failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        raise
