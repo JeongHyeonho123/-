@@ -26,14 +26,18 @@
   4) 캐시(data/history_free/_krx_symbols_cache.csv) fallback
 """
 
-import os, sys
+import os
+import sys
 
 def BASE_DIR():
-    # exe 실행 시: dist 폴더
+    """
+    ✅ Render/GitHub 서버 기준으로 data/ 경로가 항상 '레포 루트'에 생기도록 통일
+    - 현재 파일 위치: engine/free_history_collector/1.free_history_collector.py
+    - 레포 루트: 위로 2단계
+    """
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    # py 실행 시
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def P(*paths):
     return os.path.join(BASE_DIR(), *paths)
@@ -55,6 +59,7 @@ import requests
 import pandas as pd
 import FinanceDataReader as fdr
 import yfinance as yf
+
 
 ################################################################################
 # 기업식 유틸(레이트리밋/백오프/캐시)
@@ -136,6 +141,7 @@ class SimpleTTLCache:
         with self.lock:
             self.data[key] = (time.time() + self.ttl, val)
 
+
 ################################################################################
 # 기본 설정
 ################################################################################
@@ -185,8 +191,6 @@ def merge_dict(base: dict, loaded: dict):
 def load_config() -> dict:
     cfg_path = ABS(DEFAULT_CONFIG["config_file"])
     if not os.path.exists(cfg_path):
-        # config_file은 dist 기준 상대경로가 올 수 있으니, 폴더 생성은 안전하게 처리
-        # (파일명이 루트면 dirname이 ''이라 makedirs 에러 나므로 분기)
         d = os.path.dirname(cfg_path)
         if d:
             os.makedirs(d, exist_ok=True)
@@ -203,6 +207,7 @@ def load_config() -> dict:
             merged[k] = ABS(merged[k])
 
     return merged
+
 
 ################################################################################
 # 상태 저장
@@ -271,6 +276,7 @@ class StateStore:
         with self.lock:
             fail_map = self.state.setdefault("fail", {}).setdefault(market, {})
             fail_map.pop(symbol, None)
+
 
 ################################################################################
 # 심볼 로더 (✅ KR 안정화 완성: FDR -> PYKRX -> CACHE)
@@ -439,6 +445,7 @@ def load_us_symbols_from_nasdaqtrader(
         cache.set(key, symbols)
     return symbols[:max_symbols] if (max_symbols and max_symbols > 0) else symbols
 
+
 ################################################################################
 # 저장 유틸
 ################################################################################
@@ -448,6 +455,7 @@ def ensure_dir(path: str):
 def save_df_as_csv(df: pd.DataFrame, path: str):
     ensure_dir(os.path.dirname(path))
     df.to_csv(path, index=False, encoding="utf-8-sig")
+
 
 ################################################################################
 # 수집 함수
@@ -483,6 +491,7 @@ def fetch_us_daily(ticker: str, years: int, bucket: Optional[TokenBucket] = None
     df = df.reset_index()
     df["Date"] = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d")
     return df
+
 
 ################################################################################
 # 워커
@@ -555,6 +564,7 @@ def worker_loop(
 
         finally:
             job_q.task_done()
+
 
 ################################################################################
 # 메인
@@ -645,5 +655,12 @@ def main():
 
     logger.log("무료 히스토리 Collector 종료")
 
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[FATAL] free_history_collector failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        raise
