@@ -192,3 +192,17 @@ def api_analyze(ticker: str) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail=f"analyze_ticker error: {e}")
 
     return dummy_analyze(ticker)
+
+# ==============================
+# 엔진 파이프라인 수동 실행용 API
+# (최초 1회 캐시 생성)
+# ==============================
+
+from engine.interface import run_pipeline
+
+@app.post("/engine/run")
+def engine_run():
+    result = run_pipeline()
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result)
+    return result
