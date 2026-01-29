@@ -39,13 +39,13 @@ def run_pipeline(market: str = "KR") -> Dict[str, Any]:
 
     try:
         # 1️⃣ 히스토리 수집
-        _run_py("engine/free_history_collector/1.free_history_collector.py")
+        _run_py("engine/free_history_collector/free_history_collector.py")
 
         # 2️⃣ 정규화
-        _run_py("engine/normalize_history/2.normalize_history.py")
+        _run_py("engine/normalize_history/normalize_history.py")
 
         # 3️⃣ 시그널 생성
-        _run_py("engine/signals_history_builder/12.signals_history_builder.py")
+        _run_py("engine/signals_history_builder/signals_history_builder.py")
 
         # 4️⃣ 전략 리서치
         _run_py("engine/strategy_research/strategy_research.py")
