@@ -205,3 +205,82 @@ def api_engine_run(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail=f"run_pipeline error: {e}")
 
     return dummy_run_pipeline(market=market)
+
+
+import os
+import json
+from uuid import uuid4
+from datetime import datetime
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+JOBS_PENDING = os.path.join(DATA_DIR, "jobs", "pending")
+JOBS_DONE = os.path.join(DATA_DIR, "jobs", "done")
+RESULTS_DIR = os.path.join(DATA_DIR, "results")
+
+os.makedirs(JOBS_PENDING, exist_ok=True)
+os.makedirs(JOBS_DONE, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+
+def now_str():
+    return datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+
+# -------------------------------
+# 1) 앱 → 작업 요청 등록
+# -------------------------------
+@app.post("/jobs/request", tags=["jobs"])
+def request_job(payload: Dict[str, Any]):
+    job_id = f"job_{now_str()}_{uuid4().hex[:6]}"
+    job = {
+        "job_id": job_id,
+        "type": payload.get("type", "RECOMMEND"),
+        "market": payload.get("market", "KR"),
+        "requested_at": now_str(),
+    }
+
+    path = os.path.join(JOBS_PENDING, f"{job_id}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(job, f, ensure_ascii=False, indent=2)
+
+    return {"ok": True, "job_id": job_id}
+
+
+# -------------------------------
+# 2) 집PC → 다음 작업 가져가기
+# -------------------------------
+@app.get("/jobs/next", tags=["jobs"])
+def get_next_job():
+    files = sorted(os.listdir(JOBS_PENDING))
+    if not files:
+        return {"ok": False, "message": "no job"}
+
+    fname = files[0]
+    src = os.path.join(JOBS_PENDING, fname)
+    dst = os.path.join(JOBS_DONE, fname)
+
+    os.rename(src, dst)
+
+    with open(dst, "r", encoding="utf-8") as f:
+        job = json.load(f)
+
+    return {"ok": True, "job": job}
+
+
+# -------------------------------
+# 3) 집PC → 결과 업로드
+# -------------------------------
+@app.post("/internal/upload_result", tags=["internal"])
+def upload_result(payload: Dict[str, Any]):
+    name = payload.get("name")
+    data = payload.get("data")
+
+    if not name or data is None:
+        raise HTTPException(status_code=400, detail="name/data required")
+
+    path = os.path.join(RESULTS_DIR, f"{name}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    return {"ok": True, "saved": name}
