@@ -284,3 +284,31 @@ def upload_result(payload: Dict[str, Any]):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     return {"ok": True, "saved": name}
+
+from fastapi import UploadFile, File
+import os, json
+
+DATA_DIR = "data/uploaded"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+@app.post("/upload/result")
+async def upload_result(file: UploadFile = File(...)):
+    save_path = os.path.join(DATA_DIR, file.filename)
+    with open(save_path, "wb") as f:
+        f.write(await file.read())
+
+    return {
+        "ok": True,
+        "filename": file.filename,
+        "path": save_path,
+    }
+
+
+@app.get("/result/{name}")
+def get_result(name: str):
+    path = os.path.join("data/uploaded", name)
+    if not os.path.exists(path):
+        return {"ok": False, "error": "not found"}
+
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
