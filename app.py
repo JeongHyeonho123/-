@@ -142,3 +142,37 @@ def get_result(name: str) -> Dict[str, Any]:
 # (Optional) Recommend endpoint: 업로드된 signals_latest.json 기반으로 만들고 싶으면
 # 일단은 result로 충분히 확인하고, 다음 단계에서 연결하자.
 # ------------------------------------------------------------
+
+from fastapi.security.api_key import APIKeyHeader
+from fastapi import Security
+from fastapi.openapi.utils import get_openapi
+
+API_KEY_HEADER_NAME = "x-api-key"
+api_key_header = APIKeyHeader(name=API_KEY_HEADER_NAME, auto_error=False)
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    # Swagger에서 Authorize 버튼이 뜨게 설정
+    openapi_schema["components"] = openapi_schema.get("components", {})
+    openapi_schema["components"]["securitySchemes"] = {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": API_KEY_HEADER_NAME,
+        }
+    }
+    # 전체 API에 기본 적용(원하면 특정 엔드포인트만 적용도 가능)
+    openapi_schema["security"] = [{"ApiKeyAuth": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
